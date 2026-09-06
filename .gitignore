@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Credentials — never commit a private key or filled-in env file
+*.p8
+.env
+.env.*
+!.env.example
+
