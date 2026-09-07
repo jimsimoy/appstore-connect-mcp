@@ -41,6 +41,17 @@ class AscClient:
     async def delete(self, path: str) -> None:
         await self._request("DELETE", path)
 
+    async def upload_bytes(
+        self, url: str, method: str, headers: list[dict[str, str]], content: bytes
+    ) -> None:
+        """PUT/POST raw bytes to a pre-signed upload URL (e.g. from an uploadOperations
+        entry). These URLs are not on api.appstoreconnect.apple.com and must NOT carry
+        our Bearer token — only the exact headers Apple returned for that operation."""
+        header_map = {h["name"]: h["value"] for h in headers}
+        response = await self._http.request(method, url, headers=header_map, content=content)
+        if response.status_code >= 300:
+            raise AscApiError(response.status_code, response.text)
+
     async def get_all_pages(
         self, path: str, params: dict[str, Any] | None = None, max_pages: int = 10
     ) -> list[dict[str, Any]]:

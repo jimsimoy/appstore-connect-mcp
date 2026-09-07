@@ -10,6 +10,8 @@ human action in the App Store Connect portal, not something to automate.
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -270,6 +272,265 @@ async def submit_for_review(version_id: str) -> dict[str, Any]:
         },
     )
     return body.get("data", {})
+
+
+# --- App info (name, subtitle, privacy policy URL) --------------------------
+# Note: there is no App Store "icon" upload endpoint. The Store listing icon is
+# always the app binary's own 1024pt icon asset — nothing to manage here.
+
+
+@mcp.tool()
+async def list_app_infos(app_id: str) -> list[dict[str, Any]]:
+    """List an app's appInfo records (usually one) — the container for name/subtitle localizations."""
+    client = _get_client()
+    rows = await client.get_all_pages(f"/apps/{app_id}/appInfos")
+    return [
+        {"id": row.get("id"), "appStoreState": row.get("attributes", {}).get("appStoreState")}
+        for row in rows
+    ]
+
+
+@mcp.tool()
+async def list_app_info_localizations(app_info_id: str) -> list[dict[str, Any]]:
+    """List per-locale app name/subtitle/privacy-policy-url for an appInfo."""
+    client = _get_client()
+    rows = await client.get_all_pages(f"/appInfos/{app_info_id}/appInfoLocalizations")
+    return [_summarize_app_info_localization(row) for row in rows]
+
+
+def _summarize_app_info_localization(row: dict[str, Any]) -> dict[str, Any]:
+    attrs = row.get("attributes", {})
+    return {
+        "id": row.get("id"),
+        "locale": attrs.get("locale"),
+        "name": attrs.get("name"),
+        "subtitle": attrs.get("subtitle"),
+        "privacyPolicyUrl": attrs.get("privacyPolicyUrl"),
+    }
+
+
+@mcp.tool()
+async def update_app_info_localization(
+    localization_id: str,
+    name: str | None = None,
+    subtitle: str | None = None,
+    privacy_policy_url: str | None = None,
+) -> dict[str, Any]:
+    """Update an app's name/subtitle/privacy-policy-url for one locale. Only pass the fields you want to change."""
+    attributes: dict[str, Any] = {}
+    if name is not None:
+        attributes["name"] = name
+    if subtitle is not None:
+        attributes["subtitle"] = subtitle
+    if privacy_policy_url is not None:
+        attributes["privacyPolicyUrl"] = privacy_policy_url
+    client = _get_client()
+    body = await client.patch(
+        f"/appInfoLocalizations/{localization_id}",
+        {"data": {"type": "appInfoLocalizations", "id": localization_id, "attributes": attributes}},
+    )
+    return _summarize_app_info_localization(body.get("data", {}))
+
+
+# --- App Store version listing content (description, keywords, URLs) -------
+
+
+@mcp.tool()
+async def list_app_store_version_localizations(version_id: str) -> list[dict[str, Any]]:
+    """List per-locale store listing content (description, keywords, promo text, URLs, what's new) for a version."""
+    client = _get_client()
+    rows = await client.get_all_pages(
+        f"/appStoreVersions/{version_id}/appStoreVersionLocalizations"
+    )
+    return [_summarize_version_localization(row) for row in rows]
+
+
+def _summarize_version_localization(row: dict[str, Any]) -> dict[str, Any]:
+    attrs = row.get("attributes", {})
+    return {
+        "id": row.get("id"),
+        "locale": attrs.get("locale"),
+        "description": attrs.get("description"),
+        "keywords": attrs.get("keywords"),
+        "promotionalText": attrs.get("promotionalText"),
+        "marketingUrl": attrs.get("marketingUrl"),
+        "supportUrl": attrs.get("supportUrl"),
+        "whatsNew": attrs.get("whatsNew"),
+    }
+
+
+@mcp.tool()
+async def update_app_store_version_localization(
+    localization_id: str,
+    description: str | None = None,
+    keywords: str | None = None,
+    promotional_text: str | None = None,
+    marketing_url: str | None = None,
+    support_url: str | None = None,
+    whats_new: str | None = None,
+) -> dict[str, Any]:
+    """Update store listing content for one locale on one version. Only pass the fields you want to change.
+
+    keywords is a single comma-separated string (Apple's own format, 100 char max).
+    whats_new (release notes) is required before submission for any version after the first.
+    """
+    attributes: dict[str, Any] = {}
+    if description is not None:
+        attributes["description"] = description
+    if keywords is not None:
+        attributes["keywords"] = keywords
+    if promotional_text is not None:
+        attributes["promotionalText"] = promotional_text
+    if marketing_url is not None:
+        attributes["marketingUrl"] = marketing_url
+    if support_url is not None:
+        attributes["supportUrl"] = support_url
+    if whats_new is not None:
+        attributes["whatsNew"] = whats_new
+    client = _get_client()
+    body = await client.patch(
+        f"/appStoreVersionLocalizations/{localization_id}",
+        {
+            "data": {
+                "type": "appStoreVersionLocalizations",
+                "id": localization_id,
+                "attributes": attributes,
+            }
+        },
+    )
+    return _summarize_version_localization(body.get("data", {}))
+
+
+# --- Screenshots -------------------------------------------------------------
+# Apple's flow is reserve -> upload bytes -> commit with an MD5 checksum. See
+# https://developer.apple.com/documentation/appstoreconnectapi/app_metadata/app_screenshots_and_app_previews
+
+
+@mcp.tool()
+async def list_app_screenshot_sets(version_localization_id: str) -> list[dict[str, Any]]:
+    """List screenshot sets (one per device display type, e.g. APP_IPHONE_67) for a version localization."""
+    client = _get_client()
+    rows = await client.get_all_pages(
+        f"/appStoreVersionLocalizations/{version_localization_id}/appScreenshotSets"
+    )
+    return [
+        {"id": row.get("id"), "screenshotDisplayType": row.get("attributes", {}).get("screenshotDisplayType")}
+        for row in rows
+    ]
+
+
+@mcp.tool()
+async def create_app_screenshot_set(
+    version_localization_id: str, screenshot_display_type: str
+) -> dict[str, Any]:
+    """Create a screenshot set for one device display type on one locale.
+
+    screenshot_display_type is Apple's own enum string (e.g. "APP_IPHONE_67",
+    "APP_IPHONE_65", "APP_IPAD_PRO_3GEN_129") — pass it through as documented in
+    Apple's current API reference; this tool does not validate it locally since
+    Apple adds new device sizes over time and a local allowlist would go stale.
+    """
+    client = _get_client()
+    body = await client.post(
+        "/appScreenshotSets",
+        {
+            "data": {
+                "type": "appScreenshotSets",
+                "attributes": {"screenshotDisplayType": screenshot_display_type},
+                "relationships": {
+                    "appStoreVersionLocalization": {
+                        "data": {
+                            "type": "appStoreVersionLocalizations",
+                            "id": version_localization_id,
+                        }
+                    }
+                },
+            }
+        },
+    )
+    data = body.get("data", {})
+    return {"id": data.get("id"), "screenshotDisplayType": data.get("attributes", {}).get("screenshotDisplayType")}
+
+
+@mcp.tool()
+async def list_app_screenshots(screenshot_set_id: str) -> list[dict[str, Any]]:
+    """List screenshots in a set, with upload/processing state."""
+    client = _get_client()
+    rows = await client.get_all_pages(f"/appScreenshotSets/{screenshot_set_id}/appScreenshots")
+    return [_summarize_screenshot(row) for row in rows]
+
+
+def _summarize_screenshot(row: dict[str, Any]) -> dict[str, Any]:
+    attrs = row.get("attributes", {})
+    return {
+        "id": row.get("id"),
+        "fileName": attrs.get("fileName"),
+        "fileSize": attrs.get("fileSize"),
+        "assetState": attrs.get("assetDeliveryState", {}).get("state"),
+    }
+
+
+@mcp.tool()
+async def upload_app_screenshot(screenshot_set_id: str, file_path: str) -> dict[str, Any]:
+    """Upload one screenshot image file into an existing screenshot set (reserve, upload bytes, commit).
+
+    file_path must be a local path readable by this server. Waits for Apple's
+    asset processing state after commit is not included — call
+    list_app_screenshots afterward to check assetState (COMPLETE vs FAILED).
+    """
+    path = Path(file_path).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(f"No such file: {path}")
+    content = path.read_bytes()
+
+    client = _get_client()
+    reserve = await client.post(
+        "/appScreenshots",
+        {
+            "data": {
+                "type": "appScreenshots",
+                "attributes": {"fileName": path.name, "fileSize": len(content)},
+                "relationships": {
+                    "appScreenshotSet": {
+                        "data": {"type": "appScreenshotSets", "id": screenshot_set_id}
+                    }
+                },
+            }
+        },
+    )
+    data = reserve.get("data", {})
+    screenshot_id = data.get("id")
+    upload_operations = data.get("attributes", {}).get("uploadOperations", [])
+    if not upload_operations:
+        raise RuntimeError(f"No uploadOperations returned for screenshot reservation {screenshot_id}")
+
+    for op in upload_operations:
+        offset = op.get("offset", 0)
+        length = op.get("length", len(content))
+        chunk = content[offset : offset + length]
+        await client.upload_bytes(
+            url=op["url"], method=op.get("method", "PUT"), headers=op.get("requestHeaders", []), content=chunk
+        )
+
+    checksum = hashlib.md5(content).hexdigest()
+    commit = await client.patch(
+        f"/appScreenshots/{screenshot_id}",
+        {
+            "data": {
+                "type": "appScreenshots",
+                "id": screenshot_id,
+                "attributes": {"sourceFileChecksum": checksum, "uploaded": True},
+            }
+        },
+    )
+    return _summarize_screenshot(commit.get("data", {}))
+
+
+@mcp.tool()
+async def delete_app_screenshot(screenshot_id: str) -> None:
+    """Permanently remove one screenshot."""
+    client = _get_client()
+    await client.delete(f"/appScreenshots/{screenshot_id}")
 
 
 def main() -> None:

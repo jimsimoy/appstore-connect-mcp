@@ -5,10 +5,10 @@
 <img src="https://img.shields.io/badge/python-3.12%2B-blue.svg?style=flat-square" alt="Python 3.12+">
 <a href="https://github.com/jimsimoy/appstore-connect-mcp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License: MIT"></a>
 <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-green.svg?style=flat-square" alt="MCP Compatible"></a>
-<img src="https://img.shields.io/badge/tools-14-brightgreen.svg?style=flat-square" alt="14 Tools">
+<img src="https://img.shields.io/badge/tools-24-brightgreen.svg?style=flat-square" alt="24 Tools">
 <img src="https://img.shields.io/badge/package%20manager-uv-orange.svg?style=flat-square" alt="Managed with uv">
 
-**14 tools for a focused slice of the App Store Connect API, ready to use inside Claude Desktop, Claude Code, and any MCP-compatible AI client.**
+**24 tools for a focused slice of the App Store Connect API, ready to use inside Claude Desktop, Claude Code, and any MCP-compatible AI client.**
 
 by [Jan Ivan Simoy](https://github.com/jimsimoy)
 
@@ -18,7 +18,7 @@ by [Jan Ivan Simoy](https://github.com/jimsimoy)
 
 ## What is this?
 
-App Store Connect MCP is a [Model Context Protocol](https://modelcontextprotocol.io) server that gives AI assistants direct, structured access to Apple's App Store Connect API. It authenticates with your App Store Connect API key and exposes apps, provisioning data, TestFlight, and App Store version lifecycle operations as typed MCP tools.
+App Store Connect MCP is a [Model Context Protocol](https://modelcontextprotocol.io) server that gives AI assistants direct, structured access to Apple's App Store Connect API. It authenticates with your App Store Connect API key and exposes apps, provisioning data, TestFlight, App Store version lifecycle, and store listing content (metadata, screenshots) as typed MCP tools.
 
 It deliberately does **not** wrap the entire App Store Connect API. First-time app creation and bundle ID registration are excluded on purpose — those actions set pricing and availability and presuppose Apple's developer agreements, so they stay a one-time action a human does in the App Store Connect portal, not something an AI agent automates.
 
@@ -34,6 +34,11 @@ It deliberately does **not** wrap the entire App Store Connect API. First-time a
 | **Provisioning** (read-only) | 3 | List bundle ids, certificates, and profiles |
 | **TestFlight** | 3 | List builds, beta groups, and beta testers |
 | **App Store Versions** | 5 | List/get versions, create a new version, attach a build, submit for review |
+| **App Info** | 3 | Read/update app name, subtitle, privacy policy URL per locale |
+| **Store Listing Content** | 2 | Read/update description, keywords, promo text, URLs, what's new per locale |
+| **Screenshots** | 5 | List/create screenshot sets, list/upload/delete screenshots |
+
+There is no App Store "icon" upload endpoint — the Store listing icon always comes from the app binary's own 1024pt icon asset, so there's nothing to manage separately here.
 
 <details>
 <summary>Full tool reference</summary>
@@ -54,6 +59,16 @@ It deliberately does **not** wrap the entire App Store Connect API. First-time a
 | `create_app_store_version` | Create a new version on an existing app |
 | `attach_build_to_version` | Attach a TestFlight build to a version |
 | `submit_for_review` | Submit a version for App Review |
+| `list_app_infos` | List an app's appInfo records |
+| `list_app_info_localizations` | List per-locale name/subtitle/privacy-policy-url |
+| `update_app_info_localization` | Update name/subtitle/privacy-policy-url for one locale |
+| `list_app_store_version_localizations` | List per-locale description/keywords/URLs/what's-new |
+| `update_app_store_version_localization` | Update store listing content for one locale |
+| `list_app_screenshot_sets` | List screenshot sets (one per device size) for a locale |
+| `create_app_screenshot_set` | Create a screenshot set for one device display type |
+| `list_app_screenshots` | List screenshots in a set, with upload/processing state |
+| `upload_app_screenshot` | Upload one local image file into a screenshot set (reserve/upload/commit) |
+| `delete_app_screenshot` | Remove one screenshot |
 
 </details>
 
@@ -108,7 +123,7 @@ Point an MCP client at the server via its config file, e.g.:
 }
 ```
 
-Restart your MCP client after saving. The 14 App Store Connect tools will appear automatically.
+Restart your MCP client after saving. The 24 App Store Connect tools will appear automatically.
 
 ---
 
@@ -130,6 +145,19 @@ List the builds and beta groups for app 123456789
 
 ```
 Create a new App Store version 1.2.0 for app 123456789, attach build 42, and submit it for review
+```
+
+### Fill in store listing content
+
+```
+Set the description, keywords, and support URL for app 123456789's en-US listing
+```
+
+### Upload screenshots
+
+```
+Create an iPhone 6.7" screenshot set for app 123456789's en-US listing and upload
+these 3 PNG files into it
 ```
 
 ---
